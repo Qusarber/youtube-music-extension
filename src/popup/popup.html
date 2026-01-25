@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>YouTube Music Extension</title>
+    <link rel="stylesheet" href="popup.css">
+  </head>
+  <body>
+    <div class="container">
+      <div class="now-playing">
+        <div class="artwork-container">
+          <img id="artwork" src="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='100' height='100'><rect width='100' height='100' fill='%23333'/><text x='50' y='50' font-family='Arial' font-size='12' fill='%23666' text-anchor='middle' dy='.3em'>No Art</text></svg>" alt="Album Art">
+          <div id="status-badge" class="badge unknown">Checking...</div>
+        </div>
+        <div class="info">
+          <h2 id="song-title">No song detected</h2>
+          <h3 id="artist-name">Waiting for playback...</h3>
+        </div>
+      </div>
+
+      <div class="controls">
+        <button id="btn-skip" class="btn btn-secondary">Skip Song</button>
+        <button id="btn-block" class="btn btn-danger">Block Artist</button>
+        <button id="btn-allow" class="btn btn-success">Allow Artist</button>
+      </div>
+
+      <div id="debug-info" class="debug-info hidden">
+        <!-- Technical details will go here -->
+      </div>
+    </div>
+    <script src="popup.js"></script>
+  </body>
+</html>
