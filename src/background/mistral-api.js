@@ -1,14 +1,14 @@
 // Mistral API Module
 // Handles asynchronous artist search using Mistral AI
 
-const MISTRAL_API_KEY = '9JlptdJTYQJNbNSQgZkoDRaa7HlH4kZS';
+const MISTRAL_API_KEY = '#';
 const MISTRAL_API_URL = 'https://api.mistral.ai/v1/chat/completions';
 
 class MistralAPI {
   /**
    * Searches for an artist's details using Mistral AI.
-   * 
-   * @param {string} artistName 
+   *
+   * @param {string} artistName
    * @returns {Promise<{canonicalName: string, country: string} | null>}
    */
   static async searchArtist(artistName) {
@@ -42,17 +42,17 @@ class MistralAPI {
       }
 
       const data = await response.json();
-      
+
       if (data.choices && data.choices.length > 0) {
         const content = data.choices[0].message.content;
         try {
-            return JSON.parse(content);
+          return JSON.parse(content);
         } catch (e) {
-            console.error('Failed to parse JSON response from Mistral:', content);
-            return null;
+          console.error('Failed to parse JSON response from Mistral:', content);
+          return null;
         }
       }
-      
+
       return null;
     } catch (error) {
       console.error('Mistral API search failed:', error);
