@@ -11,6 +11,7 @@ class PopupController {
       btnSkip: document.getElementById('btn-skip'),
       btnBlock: document.getElementById('btn-block'),
       btnAllow: document.getElementById('btn-allow'),
+      btnClear: document.getElementById('btn-clear'),
       debugInfo: document.getElementById('debug-info')
     };
 
@@ -33,6 +34,7 @@ class PopupController {
     this.elements.btnSkip.addEventListener('click', () => this.sendCommand('SKIP_SONG'));
     this.elements.btnBlock.addEventListener('click', () => this.sendCommand('BLOCK_ARTIST'));
     this.elements.btnAllow.addEventListener('click', () => this.sendCommand('ALLOW_ARTIST'));
+    this.elements.btnClear.addEventListener('click', () => this.clearStorage());
   }
 
   requestState() {
@@ -45,6 +47,17 @@ class PopupController {
 
   sendCommand(command) {
     chrome.runtime.sendMessage({ type: command, payload: this.currentState });
+  }
+
+  clearStorage() {
+    if (confirm('Are you sure you want to clear all extension data? This will remove all known artists and songs.')) {
+        chrome.runtime.sendMessage({ type: 'CLEAR_STORAGE' }, (response) => {
+            if (response && response.success) {
+                alert('Storage cleared!');
+                window.close(); // Close popup
+            }
+        });
+    }
   }
 
   updateUI(state) {

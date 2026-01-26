@@ -3,9 +3,13 @@
   "name": "YouTube Music Extension",
   "version": "1.0.0",
   "description": "A Chrome Extension for YouTube Music",
+  "permissions": [
+    "storage"
+  ],
   "host_permissions": [
     "https://music.youtube.com/*",
-    "https://api.mistral.ai/*"
+    "https://api.mistral.ai/*",
+    "https://www.googleapis.com/*"
   ],
   "action": {
     "default_popup": "src/popup/popup.html"

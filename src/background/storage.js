@@ -74,9 +74,45 @@ class StorageManager {
 
   static async addArtist(artist) {
     const artists = await this.getArtists();
-    // Check if exists logic would go here, usually by ID or Name
-    artists.push(artist);
-    await this.saveArtists(artists);
+    
+    // Check if exists by canonical name
+    const existingIndex = artists.findIndex(a => 
+      NormalizationUtils.normalizeArtist(a.name) === NormalizationUtils.normalizeArtist(artist.name)
+    );
+    
+    if (existingIndex !== -1) {
+        // Update existing artist with new aliases if needed
+        const existingArtist = artists[existingIndex];
+        let updated = false;
+        
+        if (artist.aliases && Array.isArray(artist.aliases)) {
+            if (!existingArtist.aliases) {
+                existingArtist.aliases = [];
+            }
+            
+            artist.aliases.forEach(alias => {
+                if (!existingArtist.aliases.includes(alias)) {
+                    existingArtist.aliases.push(alias);
+                    updated = true;
+                }
+            });
+        }
+        
+        // Also update country/isRussian if the new data is more authoritative?
+        // For now, let's trust the new search result if the old one was empty/unknown?
+        // Or just update aliases.
+        
+        if (updated) {
+            console.log('Updating aliases for existing artist:', existingArtist.name);
+            artists[existingIndex] = existingArtist;
+            await this.saveArtists(artists);
+        } else {
+            console.log('Artist already exists and up to date:', artist.name);
+        }
+    } else {
+        artists.push(artist);
+        await this.saveArtists(artists);
+    }
   }
 
   // --- Song Helpers ---
@@ -94,6 +130,12 @@ class StorageManager {
     const songs = await this.getSongs();
     songs.push(song);
     await this.saveSongs(songs);
+  }
+
+  static async clearAll() {
+    await chrome.storage.local.clear();
+    await this.init(); // Re-initialize with defaults
+    console.log('Storage cleared and re-initialized.');
   }
 
   // --- Search Cache Helpers ---

@@ -112,7 +112,14 @@ async function checkArtistMatch(artist) {
   
   const match = artists.find(a => {
     const storedArtist = NormalizationUtils.normalizeArtist(a.name);
-    return storedArtist === normalizedInputArtist;
+    if (storedArtist === normalizedInputArtist) return true;
+    
+    // Check aliases if present
+    if (a.aliases && Array.isArray(a.aliases)) {
+      return a.aliases.some(alias => NormalizationUtils.normalizeArtist(alias) === normalizedInputArtist);
+    }
+    
+    return false;
   });
 
   if (match) {
@@ -142,7 +149,7 @@ async function isArtistRussian(artistName) {
     // Assuming schema has 'country' or 'origin' or 'isRussian'
     // Let's standardize on checking 'country' code being 'RU' or 'Russia'
     const country = artistMatch.artist.country;
-    if (country === 'RU' || (country && country.toLowerCase() === 'russia')) {
+    if (country === 'RU' || (country && country.toLowerCase() === 'russia') || artistMatch.artist.isRussian) {
       return { isRussian: true, source: 'artist_list' };
     }
     // If matched but not Russian, we rely on that info.

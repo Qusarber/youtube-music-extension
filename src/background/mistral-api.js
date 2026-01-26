@@ -1,7 +1,6 @@
 // Mistral API Module
 // Handles asynchronous artist search using Mistral AI
 
-const MISTRAL_API_KEY = '#';
 const MISTRAL_API_URL = 'https://api.mistral.ai/v1/chat/completions';
 
 class MistralAPI {
@@ -9,12 +8,43 @@ class MistralAPI {
    * Searches for an artist's details using Mistral AI.
    *
    * @param {string} artistName
-   * @returns {Promise<{canonicalName: string, country: string} | null>}
+   * @param {Object} [extraContext] - Supplementary data from YouTube API
+   * @returns {Promise<{canonicalName: string, country: string, isRussian: boolean} | null>}
    */
-  static async searchArtist(artistName) {
+  static async searchArtist(artistName, extraContext = null) {
     if (!artistName) return null;
 
     try {
+      let contextStr = '';
+      if (extraContext) {
+        contextStr = `
+SUPPLEMENTARY CONTEXT (from YouTube Data API):
+- Channel Title: ${extraContext.title || 'N/A'}
+- Channel ID: ${extraContext.channelId || 'N/A'}
+- Country (from Channel): ${extraContext.country || 'N/A'}
+- Description: ${extraContext.description ? extraContext.description.substring(0, 500) + '...' : 'N/A'}
+- Has VK.com Link: ${extraContext.hasVkLink ? 'YES (Strong Indicator of Russian origin/audience)' : 'NO'}
+- Custom URL: ${extraContext.customUrl || 'N/A'}
+`;
+      }
+
+      // Prompt designed for deep research context
+      const prompt = `Identify the music artist "${artistName}". Return a valid JSON object with:
+- "canonicalName": string
+- "country": ISO 3166-1 alpha-2 code
+- "isRussian": boolean
+
+${contextStr}
+
+Determine "isRussian":
+- TRUE if the artist is Russian (born in/citizen of Russia, based in Russia, or supports the invasion).
+- FALSE if the artist is Ukrainian, Kazakh, Belarusian (unless supporting invasion), or Western.
+
+CRITICAL DISTINCTIONS:
+- Language != Nationality. Many Ukrainians (e.g., KRBK, Dim Slavyanin, NK) sing in Russian. They are NOT Russian. Mark them as UA/false.
+- Check the artist's career base and origin. If they operate in Russia -> RU.
+- If unknown, return null country and false.`;
+
       const response = await fetch(MISTRAL_API_URL, {
         method: 'POST',
         headers: {
@@ -22,18 +52,11 @@ class MistralAPI {
           'Authorization': `Bearer ${MISTRAL_API_KEY}`
         },
         body: JSON.stringify({
-          model: 'mistral-tiny',
+          model: 'mistral-large-latest',
           messages: [
-            {
-              role: 'system',
-              content: 'You are a music database assistant. Return JSON only. Format: {"canonicalName": "string", "country": "ISO 3166-1 alpha-2 code"}. If unknown, return null country.'
-            },
-            {
-              role: 'user',
-              content: `Identify the music artist "${artistName}". Return their canonical name and country of origin.`
-            }
+            { role: "user", content: prompt }
           ],
-          response_format: { type: 'json_object' }
+          response_format: { type: "json_object" }
         })
       });
 

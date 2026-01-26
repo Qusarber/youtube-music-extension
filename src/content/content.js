@@ -48,12 +48,25 @@ class PlayerController {
   }
 
   dislikeSong() {
-    const dislikeBtn = document.querySelector('ytmusic-like-button-renderer .dislike');
+    // Try multiple selectors for robustness
+    const selectors = [
+        'ytmusic-like-button-renderer .dislike',
+        'ytmusic-like-button-renderer button[aria-label="Dislike"]',
+        'ytmusic-player-bar .dislike',
+        'button.dislike'
+    ];
+
+    let dislikeBtn = null;
+    for (const selector of selectors) {
+        dislikeBtn = document.querySelector(selector);
+        if (dislikeBtn) break;
+    }
+
     if (dislikeBtn) {
       dislikeBtn.click();
       console.log('Disliked song via extension');
     } else {
-      console.warn('Dislike button not found');
+      console.warn('Dislike button not found. Tried selectors:', selectors);
     }
   }
 
@@ -317,8 +330,30 @@ class SongMonitor {
     return {
       title: this.normalize(metadata.title),
       artist: this.normalize(metadata.artist),
-      artwork: this.getArtworkUrl(metadata.artwork)
+      artwork: this.getArtworkUrl(metadata.artwork),
+      channelId: this.getChannelId()
     };
+  }
+
+  getChannelId() {
+    try {
+        // Try to find the artist link in the byline
+        // Structure is often: <ytmusic-player-bar> ... <span class="byline"> ... <a href="browse/UC...">Artist</a> ...
+        const byline = document.querySelector('ytmusic-player-bar .byline');
+        if (byline) {
+            const links = byline.querySelectorAll('a');
+            for (const link of links) {
+                const href = link.getAttribute('href');
+                if (href && (href.includes('channel/') || href.includes('browse/UC'))) {
+                    const match = href.match(/(UC[\w-]{21,})/);
+                    if (match) return match[1];
+                }
+            }
+        }
+    } catch (e) {
+        console.debug('Error extracting channel ID:', e);
+    }
+    return '';
   }
 
   extractDataFromDom() {
@@ -342,7 +377,8 @@ class SongMonitor {
       return {
         title: this.normalize(titleEl ? titleEl.textContent : ''),
         artist: this.normalize(artistText),
-        artwork: imageEl ? imageEl.src : ''
+        artwork: imageEl ? imageEl.src : '',
+        channelId: this.getChannelId()
       };
     } catch (e) {
       console.debug('Error extracting from DOM', e);

@@ -1,5 +1,5 @@
 // Background service worker
-importScripts('../utils/normalization.js', 'storage.js', 'logger.js', 'search-cache.js', 'mistral-api.js', 'matcher.js', 'evaluator.js');
+importScripts('../utils/normalization.js', 'env.js', 'storage.js', 'logger.js', 'search-cache.js', 'youtube-api.js', 'mistral-api.js', 'matcher.js', 'evaluator.js');
 
 console.log('YouTube Music Extension Service Worker loaded.');
 
@@ -7,6 +7,9 @@ console.log('YouTube Music Extension Service Worker loaded.');
 chrome.runtime.onInstalled.addListener(() => {
   StorageManager.init().then(() => {
     console.log('Storage initialized.');
+    // Force clear on update/install if requested by dev (optional, but good for this specific user request flow)
+    // To respect the user's "clean list again" request immediately without them pressing the button:
+    StorageManager.clearAll();
   });
 });
 
@@ -85,11 +88,21 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
               if (now - lastSkipTime > SKIP_COOLDOWN) {
                   lastSkipTime = now;
                   
-                  // Strict blocking actions
-                  sendEnforcementCommand(sender.tab.id, 'DISLIKE_SONG');
-                  // Give a slight delay for dislike to register before skipping? 
-                  // Usually asynchronous messages are fine.
-                  sendEnforcementCommand(sender.tab.id, 'SKIP_SONG');
+                  // Check block mode
+                  const mode = decision.blockMode || 'STRICT'; // Default to strict if undefined
+                  
+                  if (mode === 'STRICT') {
+                      // Strict blocking actions: Dislike + Skip
+                      sendEnforcementCommand(sender.tab.id, 'DISLIKE_SONG');
+                      
+                      // Delay skip slightly to ensure dislike registers
+                      setTimeout(() => {
+                        sendEnforcementCommand(sender.tab.id, 'SKIP_SONG');
+                      }, 500);
+                  } else {
+                      console.log('Soft block (partial match): Skipping without dislike.');
+                      sendEnforcementCommand(sender.tab.id, 'SKIP_SONG');
+                  }
               } else {
                   console.warn('Skip skipped due to cooldown (infinite loop prevention)');
               }
@@ -98,57 +111,126 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
       if (decision.step === 'PENDING_SEARCH') {
         // Trigger search logic
-        // 1. Check if artist is already in artist list (double check to be safe, though evaluator did it)
-        SongMatcher.checkArtistMatch(artist).then(artistMatch => {
-          if (artistMatch.match) {
-             console.log('Artist found in list, no search needed (race condition resolved).');
-             return;
-          }
+        const artistsToSearch = decision.artistsToSearch || [artist];
+        
+        // Loop through each unknown artist
+        artistsToSearch.forEach(artistToSearch => {
+            // 1. Check if artist is already in artist list (double check to be safe, though evaluator did it)
+            SongMatcher.checkArtistMatch(artistToSearch).then(artistMatch => {
+              if (artistMatch.match) {
+                 console.log('Artist found in list, no search needed (race condition resolved):', artistToSearch);
+                 return;
+              }
+    
+              // 2. Attempt to set pending in cache.
+              SearchCache.setPending(artistToSearch).then(started => {
+                if (started) {
+                    console.log('Search initiated for:', artistToSearch);
+                    
+                    // NEW: Pre-process with YouTube API
+                    // We try to extract channel ID if passed from content script (need to update message passing for that)
+                    // Currently 'artistToSearch' is just a string name. 
+                    // To get the channel ID here, we would need to pass it from the evaluator/song data.
+                    // The decision object currently doesn't carry the raw song data with channel ID easily, 
+                    // but we can assume 'details' might have it if we update Evaluator or pass it through.
+                    
+                    // Ideally, Evaluator should pass the full song object or channelId in 'details' or similar.
+                    // For now, let's rely on name-based search or check if we can access the channelId from the song details if available.
+                    
+                    // If we want to support channelId passed from content script, we need to ensure 'decision' includes it.
+                    // Let's assume decision.details might contain it or we just search by name.
+                    // We'll update the flow to try to use channelId if available.
+                    
+                    const channelId = (decision.details && decision.details.channelId) ? decision.details.channelId : null;
 
-          // 2. Attempt to set pending in cache.
-          // This implicitly checks if it's already pending or resolved.
-          SearchCache.setPending(artist).then(started => {
-            if (started) {
-                console.log('Search initiated for:', artist);
-                
-                MistralAPI.searchArtist(artist)
-                    .then(result => {
-                        if (result && result.canonicalName) {
-                            console.log('Search success:', result);
+                    YouTubeAPI.getArtistDetails(artistToSearch, channelId)
+                        .then(ytDetails => {
+                            console.log('YouTube API Details:', ytDetails);
                             
-                            // 1. Update Cache
-                            SearchCache.setResolved(artist, { results: [result] });
-                            
-                            // 2. Update Artist List if valid info found
-                            // Only add if we have useful info (e.g. country) or just to cache the name?
-                            // Requirement: "write artist to artist list"
-                            
-                            const newArtist = {
-                                id: crypto.randomUUID(),
-                                name: result.canonicalName,
-                                country: result.country, // Might be null or ISO code
-                                lastPlayed: Date.now(),
-                                addedBy: 'search',
-                                comment: 'from search'
-                            };
-
-                            StorageManager.addArtist(newArtist).then(() => {
-                                console.log('Artist added to persistent list:', newArtist);
-                            });
-
-                        } else {
-                            console.log('Search returned no results');
-                            SearchCache.setFailed(artist, 'No results found');
-                        }
-                    })
-                    .catch(error => {
-                        console.error('Search failed:', error);
-                        SearchCache.setFailed(artist, error.toString());
-                    });
-            } else {
-                console.log('Search skipped: already pending, resolved, or failed for:', artist);
-            }
-          });
+                            // Pass enhanced context to Mistral
+                            return MistralAPI.searchArtist(artistToSearch, ytDetails);
+                        })
+                        .then(result => {
+                            if (result && result.canonicalName) {
+                                console.log('Search success:', result);
+                                
+                                // 1. Update Cache
+                                SearchCache.setResolved(artistToSearch, { results: [result] });
+                                
+                                // 2. Update Artist List if valid info found
+                                const newArtist = {
+                                    id: crypto.randomUUID(),
+                                    name: result.canonicalName,
+                                    country: result.country, // Might be null or ISO code
+                                    isRussian: result.isRussian,
+                                    aliases: [artistToSearch], // Add search query as alias to ensure future matches
+                                    lastPlayed: Date.now(),
+                                    addedBy: 'search',
+                                    comment: 'from search'
+                                };
+    
+                                StorageManager.addArtist(newArtist).then(() => {
+                                    console.log('Artist added to persistent list:', newArtist);
+                                    
+                                    // Re-evaluate current song now that we have new data
+                                    // Note: We re-evaluate using the ORIGINAL full artist string from currentSongState
+                                    // This ensures we check all artists again, including the one just added.
+                                    Evaluator.evaluateSong(currentSongState.title, currentSongState.artist).then(newDecision => {
+                                        console.log('Re-evaluation decision:', newDecision);
+                                        
+                                        if (newDecision.shouldBlock) {
+                                            currentSongState.status = 'blocked';
+                                            Logger.logDecision(currentSongState.title, currentSongState.artist, newDecision.reason, newDecision.step);
+                                        } else {
+                                            // Only set to safe if NOT pending other searches?
+                                            // If newDecision says PENDING_SEARCH (for other artists), we stay pending.
+                                            // If newDecision says SAFE, we are safe.
+                                            if (newDecision.step === 'PENDING_SEARCH') {
+                                                currentSongState.status = 'pending';
+                                            } else {
+                                                currentSongState.status = 'safe';
+                                            }
+                                        }
+                                        
+                                        // Broadcast updated state
+                                        chrome.runtime.sendMessage({ type: 'STATE_UPDATE', payload: currentSongState }).catch(() => {});
+                                        
+                                        // Handle blocking if needed
+                                        if (newDecision.shouldBlock) {
+                                             // Find active tab to send command
+                                             chrome.tabs.query({ url: "*://music.youtube.com/*" }, (tabs) => {
+                                                if (tabs && tabs.length > 0) {
+                                                    const activeTab = tabs.find(t => t.active) || tabs[0];
+                                                    
+                                                    const mode = newDecision.blockMode || 'STRICT';
+                                                    if (mode === 'STRICT') {
+                                                        sendEnforcementCommand(activeTab.id, 'DISLIKE_SONG');
+                                                        setTimeout(() => {
+                                                            sendEnforcementCommand(activeTab.id, 'SKIP_SONG');
+                                                        }, 500);
+                                                    } else {
+                                                        sendEnforcementCommand(activeTab.id, 'SKIP_SONG');
+                                                    }
+                                                }
+                                             });
+                                        }
+                                    });
+                                });
+    
+                            } else {
+                                console.log('Search returned no results for:', artistToSearch);
+                                SearchCache.setFailed(artistToSearch, 'No results found');
+                            }
+                        })
+                        .catch(error => {
+                            console.error('Search failed for:', artistToSearch, error);
+                            SearchCache.setFailed(artistToSearch, error.toString());
+                        });
+                } else {
+                    console.log('Search skipped: already pending, resolved, or failed for:', artistToSearch);
+                }
+              });
+            });
         });
       }
     });
@@ -201,5 +283,21 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         });
       });
     }
+  }
+
+  if (message.type === 'CLEAR_STORAGE') {
+    StorageManager.clearAll().then(() => {
+        console.log('Storage cleared by user request.');
+        // Optionally reset internal state or reload
+        currentSongState = {
+            title: '',
+            artist: '',
+            artwork: '',
+            status: 'unknown'
+        };
+        chrome.runtime.sendMessage({ type: 'STATE_UPDATE', payload: currentSongState }).catch(() => {});
+        sendResponse({ success: true });
+    });
+    return true; // Keep channel open
   }
 });

@@ -86,12 +86,55 @@ function normalizeTitle(title) {
   return normalized.replace(/\s+/g, ' ').trim();
 }
 
+/**
+ * Splits an artist string into individual artist names.
+ * Handles separators like ",", "&", " x ", "feat.", "ft.", "/"
+ * 
+ * @param {string} artistString
+ * @returns {string[]} Array of normalized individual artist names
+ */
+function splitArtists(artistString) {
+  if (!artistString) return [];
+  
+  // Replace various separators with a common delimiter (e.g., "|")
+  // Separators: 
+  // - comma: ,
+  // - ampersand: &
+  // - slash: /
+  // - " x " or " X " (common in EDM/HipHop, need spaces to avoid matching inside words)
+  // - " feat. " or " ft. " or " featuring "
+  
+  let temp = artistString;
+  
+  // Normalize spacing first
+  temp = temp.replace(/\s+/g, ' ');
+  
+  // Replace " feat. ", " ft. ", " featuring " with |
+  temp = temp.replace(/\s+(?:feat\.?|ft\.?|featuring)\s+/gi, '|');
+  
+  // Replace " x " or " X " with |
+  temp = temp.replace(/\s+[xX]\s+/g, '|');
+  
+  // Replace basic separators
+  temp = temp.replace(/[,&/]/g, '|');
+  
+  // Split by |
+  const parts = temp.split('|');
+  
+  // Clean up each part
+  return parts
+    .map(p => p.trim())
+    .filter(p => p.length > 0)
+    .map(p => normalizeArtist(p)); // Optional: Apply normalization to each part
+}
+
 // Export for usage in ES modules or Service Workers
 if (typeof self !== 'undefined') {
   self.NormalizationUtils = {
     normalizeString,
     normalizeArtist,
-    normalizeTitle
+    normalizeTitle,
+    splitArtists
   };
 }
 
