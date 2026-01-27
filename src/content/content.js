@@ -4,10 +4,16 @@ console.log('YouTube Music Extension Content Script loaded.');
 class PlayerController {
   constructor() {
     this.initListeners();
+    this.enforcementState = {
+        active: false,
+        title: '',
+        startTime: 0
+    };
   }
 
   initListeners() {
     chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+      console.log('Content script received message:', message.type, message);
       switch (message.type) {
         case 'GET_PLAYBACK_STATUS':
             // Proactively emit the current song
@@ -22,10 +28,13 @@ class PlayerController {
           this.likeSong();
           break;
         case 'DISLIKE_SONG':
-          this.dislikeSong();
+          this.handleDislikeCommand();
           break;
         case 'SKIP_SONG':
-          this.skipSong();
+          this.handleSkipCommand();
+          break;
+        case 'BLOCK_CURRENT_SONG':
+          this.blockCurrentSong();
           break;
         case 'REMOVE_FROM_QUEUE':
           this.removeFromQueue(message.index);
@@ -35,6 +44,78 @@ class PlayerController {
           break;
       }
     });
+  }
+
+  async handleDislikeCommand() {
+      const currentTitle = this.getCurrentTitle();
+      console.log(`Starting robust dislike enforcement for: "${currentTitle}"`);
+      
+      // Initialize enforcement state for the current song
+      this.enforcementState = {
+          active: true,
+          title: currentTitle,
+          startTime: Date.now()
+      };
+
+      // Start the persistent loop
+      this.enforceDislikeLoop();
+  }
+
+  async enforceDislikeLoop() {
+      // 1. Safety Check: Stop if enforcement was disabled
+      if (!this.enforcementState.active) return;
+
+      const currentTitle = this.getCurrentTitle();
+      
+      // 2. Stop if song changed
+      if (currentTitle !== this.enforcementState.title) {
+          console.log('Song changed, stopping dislike enforcement.');
+          this.enforcementState.active = false;
+          return;
+      }
+
+      // 3. Attempt Dislike (includes idempotency check)
+      // We assume if dislikeSong returns true, it is successfully disliked (or was already disliked)
+      const success = await this.dislikeSong();
+      
+      if (success) {
+          console.log('Dislike enforcement successful. Stopping loop.');
+          this.enforcementState.active = false;
+          return;
+      }
+
+      // 4. Timeout Check (Prevent infinite loops)
+      const elapsed = Date.now() - this.enforcementState.startTime;
+      if (elapsed > 60000) { // Stop after 60 seconds
+          console.error('Dislike enforcement timed out (60s). Stopping retries.');
+          this.enforcementState.active = false;
+          return;
+      }
+
+      // 5. Retry with Backoff/Throttling
+      // Use a generous delay to handle UI throttling or loading states
+      const delay = 1500; // 1.5 seconds wait between attempts
+      
+      console.log(`Dislike not yet applied/verified. Retrying in ${delay}ms...`);
+      setTimeout(() => this.enforceDislikeLoop(), delay);
+  }
+
+  async handleSkipCommand() {
+      console.log('Handling SKIP_SONG command with retries...');
+      let attempts = 0;
+      const maxAttempts = 10;
+      
+      while (attempts < maxAttempts) {
+          if (this.skipSong()) {
+              console.log(`Skip successful on attempt ${attempts + 1}`);
+              return true;
+          }
+          console.log(`Skip attempt ${attempts + 1} failed. Retrying in 500ms...`);
+          await new Promise(r => setTimeout(r, 500));
+          attempts++;
+      }
+      console.error(`Failed to skip song after ${maxAttempts} attempts.`);
+      return false;
   }
 
   likeSong() {
@@ -47,36 +128,191 @@ class PlayerController {
     }
   }
 
-  dislikeSong() {
-    // Try multiple selectors for robustness
+  async dislikeSong() {
+    console.log('Attempting to dislike song...');
+    // Prefer stable, accessibility-based selectors first and fall back to broader scan
     const selectors = [
-        'ytmusic-like-button-renderer .dislike',
+        'ytmusic-player-bar #button-shape-dislike > button',
+        'ytmusic-player-bar #button-shape-dislike button',
+        '.middle-controls-buttons yt-button-shape[aria-label="Dislike"] button',
+        '.middle-controls-buttons yt-button-shape[aria-label="Не нравится"] button',
+        '.middle-controls-buttons yt-button-shape[aria-label="Не подобається"] button',
         'ytmusic-like-button-renderer button[aria-label="Dislike"]',
-        'ytmusic-player-bar .dislike',
-        'button.dislike'
+        'ytmusic-like-button-renderer button[aria-label="Не нравится"]',
+        'ytmusic-like-button-renderer button[aria-label="Не подобається"]',
+        'ytmusic-player-bar button.dislike',
+        'ytmusic-like-button-renderer .dislike',
+        'ytmusic-player-bar .dislike'
     ];
 
     let dislikeBtn = null;
+
     for (const selector of selectors) {
-        dislikeBtn = document.querySelector(selector);
-        if (dislikeBtn) break;
+        const candidate = document.querySelector(selector);
+        if (candidate) {
+            dislikeBtn = candidate;
+            console.log(`Dislike button found using selector: "${selector}"`);
+            break;
+        }
     }
 
-    if (dislikeBtn) {
-      dislikeBtn.click();
-      console.log('Disliked song via extension');
-    } else {
-      console.warn('Dislike button not found. Tried selectors:', selectors);
+    // Fallback: search by aria-label within the main player bar to handle layout/DOM changes
+    if (!dislikeBtn) {
+        const playerBar = document.querySelector('ytmusic-player-bar');
+        if (playerBar) {
+            const labelKeywords = ['dislike', 'не нравится', 'не подобається'];
+            const ariaCandidates = playerBar.querySelectorAll('button[aria-label], yt-button-shape[aria-label], [role="button"][aria-label]');
+            for (const el of ariaCandidates) {
+                const label = (el.getAttribute('aria-label') || '').toLowerCase();
+                if (labelKeywords.some(k => label.includes(k))) {
+                    dislikeBtn = el.tagName === 'BUTTON' ? el : (el.querySelector('button') || el);
+                    console.log('Dislike button found via aria-label scan.');
+                    break;
+                }
+            }
+        }
     }
+
+    if (!dislikeBtn) {
+      console.error('Dislike button NOT found using any selector/aria-label scan.');
+      return false;
+    }
+
+    if (!dislikeBtn.isConnected) {
+        console.warn('Dislike button reference is detached from DOM, will retry.');
+        return false;
+    }
+
+    // Idempotency Check: verify current state to avoid toggling off an existing dislike
+    if (this.isDislikeButtonActive(dislikeBtn)) {
+        // If the song is already disliked and enforcement was triggered (artist blocked),
+        // immediately skip to prevent replaying previously disliked content.
+        // This handles cases where a user manually starts an already-disliked track.
+        console.log('Song already disliked. Initiating skip due to blocked artist.');
+        await this.handleSkipCommand();
+        return true;
+    }
+
+    if (dislikeBtn.disabled || dislikeBtn.getAttribute('aria-disabled') === 'true') {
+        console.warn('Dislike button is currently disabled. Will retry shortly.');
+        return false;
+    }
+
+    try {
+        console.log('Clicking dislike button...');
+        // Dispatch full click sequence to mimic a real user interaction
+        const mousedownEvent = new MouseEvent('mousedown', { bubbles: true, cancelable: true, view: window });
+        const mouseupEvent = new MouseEvent('mouseup', { bubbles: true, cancelable: true, view: window });
+        const clickEvent = new MouseEvent('click', { bubbles: true, cancelable: true, view: window });
+
+        dislikeBtn.dispatchEvent(mousedownEvent);
+        dislikeBtn.dispatchEvent(mouseupEvent);
+        dislikeBtn.dispatchEvent(clickEvent);
+    } catch (e) {
+        console.error('Click failed with error:', e);
+        return false;
+    }
+
+    // Give YouTube Music time to update the button state and then verify it changed
+    await new Promise(r => setTimeout(r, 200));
+
+    const verificationTarget = (() => {
+        if (dislikeBtn.isConnected) {
+            return dislikeBtn;
+        }
+        const playerBar = document.querySelector('ytmusic-player-bar');
+        if (!playerBar) return null;
+        const labelKeywords = ['dislike', 'не нравится', 'не подобається'];
+        const ariaCandidates = playerBar.querySelectorAll('button[aria-label], yt-button-shape[aria-label], [role="button"][aria-label]');
+        for (const el of ariaCandidates) {
+            const label = (el.getAttribute('aria-label') || '').toLowerCase();
+            if (labelKeywords.some(k => label.includes(k))) {
+                return el.tagName === 'BUTTON' ? el : (el.querySelector('button') || el);
+            }
+        }
+        return null;
+    })();
+
+    if (verificationTarget && this.isDislikeButtonActive(verificationTarget)) {
+        console.log('Dislike state confirmed after click.');
+        return true;
+    }
+
+    console.warn('Dislike click did not change button state yet. Will retry if attempts remain.');
+    return false;
+  }
+
+  isDislikeButtonActive(buttonEl) {
+      if (!buttonEl) return false;
+      const ariaPressed = buttonEl.getAttribute('aria-pressed');
+      const ariaLabel = (buttonEl.getAttribute('aria-label') || '').toLowerCase();
+      // Treat visual/ARIA-active states as "already disliked" to keep the action idempotent
+      return ariaPressed === 'true' ||
+             buttonEl.classList.contains('iron-selected') ||
+             buttonEl.classList.contains('style-default-active') ||
+             ariaLabel.includes('disliked');
+  }
+
+  async blockCurrentSong() {
+      if (this.isBlocking) return; // Prevent re-entry
+      this.isBlocking = true;
+      console.log('Blocking current song: Dislike + Skip (Smart Mode)');
+      
+      try {
+          const currentTitle = this.getCurrentTitle();
+
+          // Use the robust retry handler
+          await this.handleDislikeCommand();
+          
+          // Wait to see if auto-skip happens (increased delay)
+          await new Promise(r => setTimeout(r, 800));
+
+          const newTitle = this.getCurrentTitle();
+          
+          if (currentTitle === newTitle) {
+               console.log('Song did not auto-skip. forcing skip.');
+               this.skipSong();
+               // Add delay after skip to let UI settle
+               await new Promise(r => setTimeout(r, 1000));
+          } else {
+               console.log('Song auto-skipped (or changed).');
+               // Still wait a bit to ensure we don't process the next one too fast
+               await new Promise(r => setTimeout(r, 500));
+          }
+      } catch (err) {
+          console.error('Error during block sequence:', err);
+      } finally {
+          this.isBlocking = false;
+      }
+  }
+
+  getCurrentTitle() {
+    const titleEl = document.querySelector('ytmusic-player-bar .title');
+    return titleEl ? titleEl.textContent.trim() : '';
   }
 
   skipSong() {
-    const nextBtn = document.querySelector('.next-button');
+    const selectors = [
+        '.next-button',
+        'ytmusic-player-bar .next-button',
+        '[aria-label="Next"]',
+        '[aria-label="Следующий трек"]',
+        '[aria-label="Наступний трек"]'
+    ];
+    
+    let nextBtn = null;
+    for (const selector of selectors) {
+        nextBtn = document.querySelector(selector);
+        if (nextBtn) break;
+    }
+
     if (nextBtn) {
       nextBtn.click();
       console.log('Skipped song via extension');
+      return true;
     } else {
       console.warn('Next button not found');
+      return false;
     }
   }
 

@@ -61,7 +61,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     chrome.runtime.sendMessage({ type: 'SONG_CHANGED', payload: currentSongState }).catch(() => {});
 
     // Evaluate the song
-    Evaluator.evaluateSong(title, artist).then(decision => {
+    Evaluator.evaluateSong(title, artist, message.payload).then(decision => {
       console.log('Evaluation decision:', decision);
       
       // Update status based on decision
@@ -74,6 +74,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         currentSongState.status = 'safe';
         // Optional: log safe decisions if verbose mode is on
         // Logger.logDecision(title, artist, 'Allowed', decision.step);
+        
+        // Explicitly log allowance for Ukrainian language check as requested
+        if (decision.step === 'LANGUAGE') {
+            Logger.logDecision(title, artist, 'Allowed (Ukrainian Language)', decision.step);
+            console.log(`Allowed song "${title}" by "${artist}" because title is Ukrainian.`);
+        }
       }
       
       // Broadcast evaluated state
@@ -85,26 +91,39 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           Logger.logAction('BLOCK_TRIGGERED', { title, artist, method: 'SKIP_SONG' });
           if (sender.tab && sender.tab.id) {
               const now = Date.now();
-              if (now - lastSkipTime > SKIP_COOLDOWN) {
+              const timeSinceLastSkip = now - lastSkipTime;
+              
+              if (timeSinceLastSkip > SKIP_COOLDOWN) {
                   lastSkipTime = now;
                   
                   // Check block mode
                   const mode = decision.blockMode || 'STRICT'; // Default to strict if undefined
                   
                   if (mode === 'STRICT') {
-                      // Strict blocking actions: Dislike + Skip
+                      // Strict blocking actions: Dislike only (as requested)
+                      console.log('Strict block (Blocked Artist Found): Disliking.');
                       sendEnforcementCommand(sender.tab.id, 'DISLIKE_SONG');
-                      
-                      // Delay skip slightly to ensure dislike registers
-                      setTimeout(() => {
-                        sendEnforcementCommand(sender.tab.id, 'SKIP_SONG');
-                      }, 500);
                   } else {
                       console.log('Soft block (partial match): Skipping without dislike.');
                       sendEnforcementCommand(sender.tab.id, 'SKIP_SONG');
                   }
               } else {
-                  console.warn('Skip skipped due to cooldown (infinite loop prevention)');
+                  console.warn('Skip skipped due to cooldown. Queuing retry.');
+                  // If we are blocked but in cooldown, we MUST try again shortly
+                  // otherwise the song continues playing.
+                  setTimeout(() => {
+                     // Re-verify current state matches the one we wanted to block?
+                     // Or just blindly send SKIP if still blocked?
+                     // Safer to just send BLOCK command again, content script handles checks.
+                     // But let's check if the song hasn't changed in the meantime?
+                     // Actually, if we just send the command, the content script can decide.
+                     // But better to check `currentSongState`
+                     if (currentSongState.title === title && currentSongState.artist === artist) {
+                         console.log('Retrying block after cooldown...');
+                         lastSkipTime = Date.now();
+                         sendEnforcementCommand(sender.tab.id, 'BLOCK_CURRENT_SONG');
+                     }
+                  }, SKIP_COOLDOWN - timeSinceLastSkip + 100);
               }
           }
       }
@@ -115,6 +134,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         
         // Loop through each unknown artist
         artistsToSearch.forEach(artistToSearch => {
+            const searchTitle = currentSongState.title; // Capture title for context validity check
             // 1. Check if artist is already in artist list (double check to be safe, though evaluator did it)
             SongMatcher.checkArtistMatch(artistToSearch).then(artistMatch => {
               if (artistMatch.match) {
@@ -128,27 +148,48 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                     console.log('Search initiated for:', artistToSearch);
                     
                     // NEW: Pre-process with YouTube API
-                    // We try to extract channel ID if passed from content script (need to update message passing for that)
-                    // Currently 'artistToSearch' is just a string name. 
-                    // To get the channel ID here, we would need to pass it from the evaluator/song data.
-                    // The decision object currently doesn't carry the raw song data with channel ID easily, 
-                    // but we can assume 'details' might have it if we update Evaluator or pass it through.
+                    // We extract channel ID if passed from content script via Evaluator details.
                     
-                    // Ideally, Evaluator should pass the full song object or channelId in 'details' or similar.
-                    // For now, let's rely on name-based search or check if we can access the channelId from the song details if available.
-                    
-                    // If we want to support channelId passed from content script, we need to ensure 'decision' includes it.
-                    // Let's assume decision.details might contain it or we just search by name.
-                    // We'll update the flow to try to use channelId if available.
-                    
-                    const channelId = (decision.details && decision.details.channelId) ? decision.details.channelId : null;
+                    let channelId = (decision.details && decision.details.channelId) ? decision.details.channelId : null;
+
+                    // Safety Check: Only use channelId if artistToSearch is the PRIMARY artist.
+                    // If we have a collaboration (e.g. "Artist A & Artist B"), the channelId likely belongs to Artist A.
+                    // If we search for Artist B with Artist A's channel ID, we get wrong info.
+                    if (channelId) {
+                        const fullArtistString = currentSongState.artist || '';
+                        const splitArtists = NormalizationUtils.splitArtists(fullArtistString);
+                        
+                        // If artistToSearch is NOT the first artist in the list, ignore the channelId.
+                        if (splitArtists.length > 0) {
+                            // Compare normalized versions
+                            const primaryArtist = splitArtists[0];
+                            const currentSearch = NormalizationUtils.normalizeArtist(artistToSearch);
+                            
+                            // Simple containment or equality check
+                            // Note: normalizeArtist is already applied in splitArtists map, so primaryArtist is normalized.
+                            if (currentSearch !== primaryArtist) {
+                                console.log(`Skipping channelId for secondary artist search: ${artistToSearch} (Primary: ${primaryArtist})`);
+                                channelId = null;
+                            }
+                        }
+                    }
 
                     YouTubeAPI.getArtistDetails(artistToSearch, channelId)
                         .then(ytDetails => {
                             console.log('YouTube API Details:', ytDetails);
+
+                            // CHECK FOR HARD BLOCK CONDITIONS
+                            if (ytDetails && (ytDetails.hasVkLink || ytDetails.hasYandexLink || ytDetails.hasRussianPhone)) {
+                                console.log('Hard Block triggered by YouTube API signals for:', artistToSearch);
+                                return {
+                                    canonicalName: ytDetails.title || artistToSearch,
+                                    country: 'RU',
+                                    isRussian: true
+                                };
+                            }
                             
                             // Pass enhanced context to Mistral
-                            return MistralAPI.searchArtist(artistToSearch, ytDetails);
+                            return MistralAPI.searchArtist(artistToSearch, ytDetails, searchTitle);
                         })
                         .then(result => {
                             if (result && result.canonicalName) {
@@ -175,7 +216,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                                     // Re-evaluate current song now that we have new data
                                     // Note: We re-evaluate using the ORIGINAL full artist string from currentSongState
                                     // This ensures we check all artists again, including the one just added.
-                                    Evaluator.evaluateSong(currentSongState.title, currentSongState.artist).then(newDecision => {
+                                    const isSameSong = currentSongState.title === searchTitle;
+                                    Evaluator.evaluateSong(currentSongState.title, currentSongState.artist, isSameSong ? { isKnownUkrainian: result.isSongUkrainian } : {}).then(newDecision => {
                                         console.log('Re-evaluation decision:', newDecision);
                                         
                                         if (newDecision.shouldBlock) {
@@ -203,14 +245,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                                                     const activeTab = tabs.find(t => t.active) || tabs[0];
                                                     
                                                     const mode = newDecision.blockMode || 'STRICT';
-                                                    if (mode === 'STRICT') {
-                                                        sendEnforcementCommand(activeTab.id, 'DISLIKE_SONG');
-                                                        setTimeout(() => {
-                                                            sendEnforcementCommand(activeTab.id, 'SKIP_SONG');
-                                                        }, 500);
-                                                    } else {
-                                                        sendEnforcementCommand(activeTab.id, 'SKIP_SONG');
-                                                    }
+                                                if (mode === 'STRICT') {
+                                                    console.log('Strict block (Blocked Artist Found): Disliking.');
+                                                    sendEnforcementCommand(activeTab.id, 'DISLIKE_SONG');
+                                                } else {
+                                                    sendEnforcementCommand(activeTab.id, 'SKIP_SONG');
+                                                }
                                                 }
                                              });
                                         }

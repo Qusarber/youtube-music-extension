@@ -23,9 +23,10 @@ class Evaluator {
    * 
    * @param {string} title 
    * @param {string} artistString 
+   * @param {Object} [songDetails] - Additional song details (channelId, etc.)
    * @returns {Promise<EvaluationResult>}
    */
-  static async evaluateSong(title, artistString) {
+  static async evaluateSong(title, artistString, songDetails = {}) {
     if (!title || !artistString) {
       return { shouldBlock: false, reason: 'Invalid input', step: 'Validation' };
     }
@@ -38,8 +39,18 @@ class Evaluator {
         shouldBlock: false, // Placeholder: requires song object status. Assuming safe if manually added?
         reason: 'Song found in database',
         step: 'SONG',
-        details: { match: true }
+        details: { match: true, ...songDetails }
       };
+    }
+
+    // 1.5. Check Language of Song Title
+    if (NormalizationUtils.isUkrainianString(title) || (songDetails && songDetails.isKnownUkrainian)) {
+        return {
+            shouldBlock: false,
+            reason: 'Song title is in Ukrainian',
+            step: 'LANGUAGE',
+            details: { language: 'uk', ...songDetails }
+        };
     }
 
     // 2. Split Artists and Check Each
@@ -78,16 +89,22 @@ class Evaluator {
 
     // 3. Determine Block Status
     
-    // If ANY artist is blocked, the song is blocked.
+    // Logic update:
+    // If ANY artist is blocked -> Skip (SOFT)
+    // If ALL artists are blocked -> Dislike + Skip (STRICT)
+
     if (blockedArtists.length > 0) {
-        const isPartial = safeArtists.length > 0 || unknownArtists.length > 0;
+        // User request: If artist is on the blocked list, we should DISLIKE it (Strict mode)
+        // regardless of whether it's a partial match or not.
         
+        const allBlocked = safeArtists.length === 0 && unknownArtists.length === 0;
+
         return {
             shouldBlock: true,
-            blockMode: isPartial ? 'SOFT' : 'STRICT',
-            reason: isPartial ? `Partial match: ${blockedArtists.map(a => a.name).join(', ')} (Russian)` : 'All artists are Russian',
+            blockMode: 'STRICT', // Always strict if any artist is blocked
+            reason: allBlocked ? 'All artists are Russian' : `Partial match (Force Dislike): ${blockedArtists.map(a => a.name).join(', ')} (Russian)`,
             step: 'ARTIST',
-            details: { blocked: blockedArtists, safe: safeArtists }
+            details: { blocked: blockedArtists, safe: safeArtists, unknown: unknownArtists, ...songDetails }
         };
     }
 
@@ -97,7 +114,8 @@ class Evaluator {
             shouldBlock: false,
             reason: 'Pending identification',
             step: 'PENDING_SEARCH',
-            artistsToSearch: unknownArtists
+            artistsToSearch: unknownArtists,
+            details: { ...songDetails }
         };
     }
 

@@ -128,13 +128,37 @@ function splitArtists(artistString) {
     .map(p => normalizeArtist(p)); // Optional: Apply normalization to each part
 }
 
+/**
+ * Checks if a string is likely Ukrainian based on unique characters.
+ * 
+ * Unique Ukrainian chars: ґ, є, і, ї (case insensitive)
+ * Unique Russian chars: ё, ъ, ы, э (case insensitive)
+ * 
+ * Heuristic:
+ * - Must contain at least one unique Ukrainian character.
+ * - Must NOT contain any unique Russian character.
+ * 
+ * @param {string} text 
+ * @returns {boolean}
+ */
+function isUkrainianString(text) {
+  if (!text) return false;
+  const str = text.toLowerCase();
+  
+  const hasUkrainian = /[ґєії]/.test(str);
+  const hasRussian = /[ёъыэ]/.test(str);
+  
+  return hasUkrainian && !hasRussian;
+}
+
 // Export for usage in ES modules or Service Workers
 if (typeof self !== 'undefined') {
   self.NormalizationUtils = {
     normalizeString,
     normalizeArtist,
     normalizeTitle,
-    splitArtists
+    splitArtists,
+    isUkrainianString
   };
 }
 
@@ -143,6 +167,8 @@ if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     normalizeString,
     normalizeArtist,
-    normalizeTitle
+    normalizeTitle,
+    splitArtists,
+    isUkrainianString
   };
 }

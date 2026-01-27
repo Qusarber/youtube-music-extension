@@ -28,10 +28,13 @@ class YouTubeAPI {
 
     try {
       let targetChannelId = channelId;
+      let searchItems = [];
 
       // 1. If no channel ID provided, search for the channel
       if (!targetChannelId) {
-        targetChannelId = await this.searchChannelId(artistName);
+        const searchResult = await this.searchChannel(artistName);
+        targetChannelId = searchResult.channelId;
+        searchItems = searchResult.items;
       }
 
       if (!targetChannelId) {
@@ -40,7 +43,21 @@ class YouTubeAPI {
       }
 
       // 2. Fetch channel details
-      return await this.fetchChannelDetails(targetChannelId);
+      const channelResult = await this.fetchChannelDetailsRaw(targetChannelId);
+      
+      // Merge all raw items for Mistral
+      const rawData = {
+          searchItems: searchItems,
+          channelItems: channelResult.items
+      };
+
+      // Process for legacy hard-block logic (keep compatibility)
+      const processedDetails = this.processChannelData(channelResult.items);
+
+      return {
+          ...processedDetails,
+          rawData: rawData
+      };
 
     } catch (error) {
       console.error('YouTube API Error:', error);
@@ -50,16 +67,16 @@ class YouTubeAPI {
   }
 
   /**
-   * Searches for a channel ID by artist name.
+   * Searches for a channel by artist name.
    * @param {string} query 
-   * @returns {Promise<string|null>}
+   * @returns {Promise<{channelId: string|null, items: Array}>}
    */
-  static async searchChannelId(query) {
+  static async searchChannel(query) {
     const url = new URL(`${YOUTUBE_API_BASE_URL}/search`);
     url.searchParams.append('part', 'snippet');
     url.searchParams.append('q', query);
     url.searchParams.append('type', 'channel');
-    url.searchParams.append('maxResults', '1');
+    url.searchParams.append('maxResults', '5');
     url.searchParams.append('key', YOUTUBE_API_KEY);
 
     const response = await fetch(url.toString());
@@ -68,18 +85,42 @@ class YouTubeAPI {
     }
     
     const data = await response.json();
+    let channelId = null;
+
     if (data.items && data.items.length > 0) {
-        return data.items[0].snippet.channelId;
+        // Prioritize non-Topic channels
+        const nonTopicChannel = data.items.find(item => 
+            item.snippet && 
+            item.snippet.channelTitle && 
+            !item.snippet.channelTitle.includes('- Topic')
+        );
+
+        if (nonTopicChannel) {
+            channelId = nonTopicChannel.snippet.channelId;
+        } else {
+            // Fallback to first result
+            channelId = data.items[0].snippet.channelId;
+        }
     }
-    return null;
+    
+    return {
+        channelId,
+        items: data.items || []
+    };
+  }
+
+  // Legacy method signature support if needed, or just remove
+  static async searchChannelId(query) {
+      const result = await this.searchChannel(query);
+      return result.channelId;
   }
 
   /**
-   * Fetches detailed channel info.
+   * Fetches detailed channel info (Raw).
    * @param {string} channelId 
-   * @returns {Promise<Object|null>}
+   * @returns {Promise<{items: Array}>}
    */
-  static async fetchChannelDetails(channelId) {
+  static async fetchChannelDetailsRaw(channelId) {
     const url = new URL(`${YOUTUBE_API_BASE_URL}/channels`);
     url.searchParams.append('part', 'snippet,brandingSettings');
     url.searchParams.append('id', channelId);
@@ -91,39 +132,60 @@ class YouTubeAPI {
     }
 
     const data = await response.json();
-    if (!data.items || data.items.length === 0) {
+    return {
+        items: data.items || []
+    };
+  }
+  
+  // Kept for backward compatibility but modified to use Raw
+  static async fetchChannelDetails(channelId) {
+      const result = await this.fetchChannelDetailsRaw(channelId);
+      return this.processChannelData(result.items);
+  }
+
+  static processChannelData(items) {
+    if (!items || items.length === 0) {
         return null;
     }
 
-    const item = data.items[0];
+    const item = items[0];
     const snippet = item.snippet || {};
     const branding = item.brandingSettings || {};
     
     // Extract description
     const description = snippet.description || '';
     
-    // Extract links from branding settings (if available, often elusive in API v3)
-    // Note: API v3 often doesn't return full channel links in snippet/branding easily without Oauth sometimes, 
-    // but description often contains them.
-    // However, brandingSettings.channel.keywords or similar might help.
-    // Actually, "brandingSettings.channel.description" is often the same.
-    // We mainly rely on description for links in many cases if 'brandingSettings' doesn't have 'hints'.
-    
+    // Extract keywords (often contains country or genre info)
+    const keywords = branding.channel && branding.channel.keywords ? branding.channel.keywords : '';
+
     // Check for VK links in description
     const hasVkLink = description.includes('vk.com') || description.includes('vk.ru');
+    
+    // Check for Yandex links
+    const hasYandexLink = description.toLowerCase().includes('yandex') || description.toLowerCase().includes('dzen.ru');
+
+    // Check for Russian phone numbers (+7...)
+    const russianPhoneRegex = /\+7[\s-]?\(?\d{3}\)?[\s-]?\d{3}[\s-]?\d{2}[\s-]?\d{2}/;
+    const hasRussianPhone = russianPhoneRegex.test(description);
 
     // Collect some official looking links if possible (simple regex from description)
+    // We limit this to avoid massive arrays if description is spammy
     const urlRegex = /(https?:\/\/[^\s]+)/g;
-    const links = description.match(urlRegex) || [];
+    const allLinks = description.match(urlRegex) || [];
+    const officialLinks = [...new Set(allLinks)].slice(0, 10); // Unique and max 10
 
     return {
         channelId: item.id,
         title: snippet.title,
-        description: description,
+        description: description.substring(0, 1000), // Truncate description to save tokens
+        keywords: keywords,
         customUrl: snippet.customUrl,
         country: snippet.country, // ISO code if available
+        isTopicChannel: snippet.title.includes('- Topic'),
         hasVkLink: hasVkLink,
-        officialLinks: links
+        hasYandexLink: hasYandexLink,
+        hasRussianPhone: hasRussianPhone,
+        officialLinks: officialLinks
     };
   }
 }
