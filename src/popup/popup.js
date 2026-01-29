@@ -12,7 +12,6 @@ class PopupController {
       btnBlockCurrent: document.getElementById('btn-block-current'),
       recentList: document.getElementById('recent-list'),
       btnSeeAll: document.getElementById('btn-see-all'),
-      btnToggleSearch: document.getElementById('btn-toggle-search'),
       searchContainer: document.getElementById('search-container'),
       searchInput: document.getElementById('search-input'),
       btnCloseSearch: document.getElementById('btn-close-search'),
@@ -54,11 +53,6 @@ class PopupController {
     // Expand / See All
     this.elements.btnSeeAll.addEventListener('click', () => {
         this.toggleExpand();
-    });
-
-    // Search Toggle
-    this.elements.btnToggleSearch.addEventListener('click', () => {
-        this.toggleSearch(true);
     });
 
     // Close Search
@@ -243,14 +237,6 @@ class PopupController {
               this.elements.btnSeeAll.classList.add('hidden');
           } else {
               this.elements.btnSeeAll.classList.remove('hidden');
-          }
-          
-          // Handle "Search Toggle" button visibility (in header)
-          // Hide if search container is visible
-          if (this.elements.searchContainer.classList.contains('hidden')) {
-               this.elements.btnToggleSearch.classList.remove('hidden');
-          } else {
-               this.elements.btnToggleSearch.classList.add('hidden');
           }
       } catch (error) {
           console.error('Error rendering recent list:', error);

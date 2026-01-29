@@ -20,7 +20,7 @@ body {
   width: 340px;
   height: 600px; /* 9:16-ish, max allowed height is 600 */
   margin: 0;
-  padding: 16px;
+  padding: 14px;
   background-color: var(--bg-color);
   color: var(--text-primary);
   font-family: var(--font-family);
@@ -38,7 +38,7 @@ body {
 .now-playing-card {
   background: linear-gradient(145deg, #1e1e2a 0%, #16161e 100%);
   border-radius: var(--border-radius);
-  padding: 20px;
+  padding: 18px;
   display: flex;
   flex-direction: column;
   align-items: center; /* Keeps button centered if needed, or stretch? Let's keep center for button */
@@ -47,6 +47,7 @@ body {
   border: 1px solid rgba(167, 139, 250, 0.1); /* Slight purple border */
   position: relative;
   overflow: hidden;
+  flex-shrink: 0;
 }
 
 .now-playing-row {
@@ -75,8 +76,8 @@ body {
 
 .artwork-wrapper {
   z-index: 1;
-  width: 80px;
-  height: 80px;
+  width: 74px;
+  height: 74px;
   border-radius: 12px;
   overflow: hidden;
   background-color: #222;
@@ -204,23 +205,39 @@ body {
 
 /* --- Section 2: Recent Activity --- */
 .recent-card {
-    background: var(--card-bg);
+    background: linear-gradient(145deg, #1e1e2a 0%, #16161e 100%);
     border-radius: var(--border-radius);
     padding: 16px;
     display: flex;
     flex-direction: column;
     gap: 12px;
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
-    border: 1px solid rgba(255, 255, 255, 0.05);
+    box-shadow: 0 0 20px rgba(167, 139, 250, 0.2), 0 8px 32px rgba(0, 0, 0, 0.4);
+    border: 1px solid rgba(167, 139, 250, 0.1);
     flex: 1; /* Take remaining space */
     min-height: 0; /* Enable scrolling within flex item if needed */
     overflow: hidden;
+    position: relative;
+}
+
+/* Subtle glow effect behind card */
+.recent-card::before {
+  content: '';
+  position: absolute;
+  top: -50%;
+  left: -50%;
+  width: 200%;
+  height: 200%;
+  background: radial-gradient(circle, var(--accent-glow) 0%, transparent 70%);
+  opacity: 0.15;
+  pointer-events: none;
+  z-index: 0;
 }
 
 .recent-header {
     display: flex;
     align-items: center;
     justify-content: space-between;
+    z-index: 1;
 }
 
 .btn-icon-plain {
@@ -249,6 +266,7 @@ body {
     padding: 4px 8px;
     border-radius: 8px;
     border: 1px solid rgba(255,255,255,0.1);
+    z-index: 1;
 }
 
 #search-input {
@@ -259,6 +277,7 @@ body {
     font-size: 13px;
     font-family: var(--font-family);
     outline: none;
+    z-index: 1;
 }
 
 #search-input::placeholder {
@@ -272,12 +291,15 @@ body {
     overflow-y: auto;
     padding-right: 4px; /* Space for scrollbar */
     flex: 1; /* Fill remaining space in card */
+    z-index: 1;
 }
 
 /* Custom Scrollbar for list */
 .artist-list::-webkit-scrollbar {
     width: 4px;
+    z-index: 1;
 }
+
 .artist-list::-webkit-scrollbar-track {
     background: transparent;
 }
@@ -290,15 +312,16 @@ body {
     background: rgba(255, 255, 255, 0.05);
     border: 1px solid rgba(255, 255, 255, 0.05);
     color: var(--text-secondary);
-    font-size: 11px;
+    font-size: 14px;
     font-weight: 600;
     text-transform: uppercase;
-    padding: 8px;
+    padding: 14px;
     border-radius: var(--border-radius-sm);
     cursor: pointer;
     transition: all 0.2s;
     width: 100%;
     text-align: center;
+    z-index: 1;
 }
 
 .btn-see-all:hover {
@@ -329,6 +352,7 @@ body {
   align-items: center;
   justify-content: space-between;
   transition: background-color 0.2s;
+  width: 100%; /* Ensure full width */
 }
 
 .artist-item:hover {
