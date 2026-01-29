@@ -7,9 +7,6 @@ console.log('YouTube Music Extension Service Worker loaded.');
 chrome.runtime.onInstalled.addListener(() => {
   StorageManager.init().then(() => {
     console.log('Storage initialized.');
-    // Force clear on update/install if requested by dev (optional, but good for this specific user request flow)
-    // To respect the user's "clean list again" request immediately without them pressing the button:
-    StorageManager.clearAll();
   });
 });
 
@@ -276,6 +273,72 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     });
   }
   
+  if (message.type === 'BLOCK_ARTIST') {
+    const { artist, title } = message.payload || currentSongState;
+    if (artist) {
+        const newArtist = {
+            id: crypto.randomUUID(),
+            name: artist,
+            isRussian: true, // Explicitly block
+            lastPlayed: Date.now(),
+            addedBy: 'user_block',
+            comment: 'Blocked via popup'
+        };
+        
+        StorageManager.addArtist(newArtist).then(() => {
+            console.log('Artist manually blocked:', artist);
+            
+            // Update local state if it matches current song
+            if (currentSongState.artist === artist) {
+                currentSongState.status = 'blocked';
+                chrome.runtime.sendMessage({ type: 'STATE_UPDATE', payload: currentSongState }).catch(() => {});
+
+                // Enforce block only if it matches current song
+                chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+                    const activeTab = tabs[0];
+                    if (activeTab && activeTab.url && activeTab.url.includes('music.youtube.com')) {
+                        sendEnforcementCommand(activeTab.id, 'DISLIKE_SONG');
+                    }
+                });
+            }
+        });
+    }
+  }
+
+  if (message.type === 'ALLOW_ARTIST') {
+    const { artist } = message.payload || currentSongState;
+    if (artist) {
+        const newArtist = {
+            id: crypto.randomUUID(),
+            name: artist,
+            isRussian: false, // Explicitly allow
+            lastPlayed: Date.now(),
+            addedBy: 'user_allow',
+            comment: 'Allowed via popup'
+        };
+        
+        StorageManager.addArtist(newArtist).then(() => {
+            console.log('Artist manually allowed:', artist);
+            
+            // Update local state
+            if (currentSongState.artist === artist) {
+                currentSongState.status = 'allowed'; // Use 'allowed' or 'safe'
+                chrome.runtime.sendMessage({ type: 'STATE_UPDATE', payload: currentSongState }).catch(() => {});
+            }
+        });
+    }
+  }
+
+  if (message.type === 'GET_ARTIST_HISTORY') {
+      StorageManager.getArtists().then(artists => {
+          // Sort by lastPlayed desc
+          const sorted = artists.sort((a, b) => (b.lastPlayed || 0) - (a.lastPlayed || 0));
+          
+          sendResponse({ all: sorted });
+      });
+      return true; // Keep channel open
+  }
+
   if (message.type === 'SKIP_SONG') {
     if (sender.tab && sender.tab.id) {
         // From popup via message passing (usually popup sends to runtime, which is here)

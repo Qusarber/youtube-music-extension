@@ -1,124 +1,415 @@
+:root {
+  --bg-color: #0F0F13;
+  --card-bg: #1A1A24;
+  --text-primary: #FFFFFF;
+  --text-secondary: #A1A1AA;
+  --accent-primary: #A78BFA; /* Lighter Neon Purple */
+  --accent-glow: rgba(167, 139, 250, 0.5);
+  --accent-warning: #FF3333; /* Brighter Neon Red */
+  --accent-success: #00FF99; /* Neon Green */
+  --border-radius: 16px;
+  --border-radius-sm: 8px;
+  --font-family: 'Inter', sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
 body {
-  width: 320px;
+  width: 340px;
+  height: 600px; /* 9:16-ish, max allowed height is 600 */
   margin: 0;
   padding: 16px;
-  font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-  background-color: #1f1f1f;
-  color: #ffffff;
+  background-color: var(--bg-color);
+  color: var(--text-primary);
+  font-family: var(--font-family);
+  overflow: hidden; /* No scroll on body */
 }
 
 .container {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  height: 100%;
+  gap: 20px;
 }
 
-.now-playing {
+/* --- Section 1: Now Playing --- */
+.now-playing-card {
+  background: linear-gradient(145deg, #1e1e2a 0%, #16161e 100%);
+  border-radius: var(--border-radius);
+  padding: 20px;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  text-align: center;
-  gap: 12px;
-}
-
-.artwork-container {
+  align-items: center; /* Keeps button centered if needed, or stretch? Let's keep center for button */
+  gap: 16px;
+  box-shadow: 0 0 20px rgba(167, 139, 250, 0.2), 0 8px 32px rgba(0, 0, 0, 0.4); /* Added outer glow */
+  border: 1px solid rgba(167, 139, 250, 0.1); /* Slight purple border */
   position: relative;
-  width: 120px;
-  height: 120px;
-  border-radius: 8px;
   overflow: hidden;
-  background-color: #333;
-  box-shadow: 0 4px 6px rgba(0,0,0,0.3);
 }
 
-#artwork {
+.now-playing-row {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    width: 100%;
+    gap: 16px;
+    text-align: left;
+    z-index: 1;
+}
+
+/* Subtle glow effect behind card */
+.now-playing-card::before {
+  content: '';
+  position: absolute;
+  top: -50%;
+  left: -50%;
+  width: 200%;
+  height: 200%;
+  background: radial-gradient(circle, var(--accent-glow) 0%, transparent 70%);
+  opacity: 0.15;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.artwork-wrapper {
+  z-index: 1;
+  width: 80px;
+  height: 80px;
+  border-radius: 12px;
+  overflow: hidden;
+  background-color: #222;
+  box-shadow: 0 8px 16px rgba(0,0,0,0.5);
+  position: relative;
+  flex-shrink: 0;
+}
+
+.artwork-img {
   width: 100%;
   height: 100%;
   object-fit: cover;
+  transition: opacity 0.3s;
 }
 
-.badge {
+.artwork-placeholder {
   position: absolute;
-  bottom: 8px;
-  right: 8px;
-  padding: 4px 8px;
-  border-radius: 12px;
-  font-size: 10px;
-  font-weight: bold;
-  text-transform: uppercase;
-  color: white;
-  background-color: rgba(0,0,0,0.7);
-  backdrop-filter: blur(4px);
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: #1a1a1a;
 }
 
-.badge.unknown { border: 1px solid #888; }
-.badge.safe { background-color: #2e7d32; } /* Green */
-.badge.blocked { background-color: #c62828; } /* Red */
-.badge.pending { background-color: #f9a825; color: #000; } /* Yellow */
+.song-info {
+  z-index: 1;
+  flex: 1;
+  min-width: 0; /* For text truncation */
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
 
-.info h2 {
+#song-title {
   margin: 0;
   font-size: 16px;
-  font-weight: 600;
+  font-weight: 700;
+  line-height: 1.3;
+  color: var(--text-primary);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-shadow: 0 2px 4px rgba(0,0,0,0.5);
+}
+
+#artist-name {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 100%;
+  width: 100%;
 }
 
-.info h3 {
-  margin: 4px 0 0;
-  font-size: 14px;
-  font-weight: 400;
-  color: #aaa;
+.status-badge {
+  margin-top: 2px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: 12px;
+  background-color: rgba(255, 255, 255, 0.1);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
 }
 
-.controls {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+.status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: var(--text-secondary);
 }
 
-.btn {
-  padding: 8px 16px;
+.status-badge.safe .status-dot { background-color: var(--accent-success); box-shadow: 0 0 6px var(--accent-success); }
+.status-badge.blocked .status-dot { background-color: var(--accent-warning); box-shadow: 0 0 6px var(--accent-warning); }
+.status-badge.pending .status-dot { background-color: #F59E0B; }
+
+.status-badge.safe { color: var(--accent-success); background-color: rgba(16, 185, 129, 0.1); }
+.status-badge.blocked { color: var(--accent-warning); background-color: rgba(239, 68, 68, 0.1); }
+
+.btn-block-current {
+  z-index: 1;
+  width: 100%;
+  padding: 14px;
   border: none;
-  border-radius: 4px;
+  border-radius: var(--border-radius-sm);
+  background: rgba(239, 68, 68, 0.15);
+  color: var(--accent-warning);
+  font-family: var(--font-family);
   font-size: 14px;
-  font-weight: 500;
+  font-weight: 600;
   cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  transition: all 0.2s ease;
+  border: 1px solid rgba(239, 68, 68, 0.2);
+}
+
+.btn-block-current:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.25);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(239, 68, 68, 0.2);
+}
+
+.btn-block-current:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.btn-block-current:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  filter: grayscale(1);
+}
+
+/* --- Section 2: Recent Activity --- */
+.recent-card {
+    background: var(--card-bg);
+    border-radius: var(--border-radius);
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    flex: 1; /* Take remaining space */
+    min-height: 0; /* Enable scrolling within flex item if needed */
+    overflow: hidden;
+}
+
+.recent-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.btn-icon-plain {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    padding: 4px;
+    border-radius: 4px;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.btn-icon-plain:hover {
+    color: var(--text-primary);
+    background-color: rgba(255,255,255,0.1);
+}
+
+.search-container {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background-color: rgba(0,0,0,0.3);
+    padding: 4px 8px;
+    border-radius: 8px;
+    border: 1px solid rgba(255,255,255,0.1);
+}
+
+#search-input {
+    flex: 1;
+    background: none;
+    border: none;
+    color: var(--text-primary);
+    font-size: 13px;
+    font-family: var(--font-family);
+    outline: none;
+}
+
+#search-input::placeholder {
+    color: #555;
+}
+
+.artist-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    overflow-y: auto;
+    padding-right: 4px; /* Space for scrollbar */
+    flex: 1; /* Fill remaining space in card */
+}
+
+/* Custom Scrollbar for list */
+.artist-list::-webkit-scrollbar {
+    width: 4px;
+}
+.artist-list::-webkit-scrollbar-track {
+    background: transparent;
+}
+.artist-list::-webkit-scrollbar-thumb {
+    background: #333;
+    border-radius: 2px;
+}
+
+.btn-see-all {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    color: var(--text-secondary);
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    padding: 8px;
+    border-radius: var(--border-radius-sm);
+    cursor: pointer;
+    transition: all 0.2s;
+    width: 100%;
+    text-align: center;
+}
+
+.btn-see-all:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: var(--text-primary);
+}
+
+/* Old History Section Styles (Removed/Refactored) */
+/* .history-section { ... } */
+/* .list-group { ... } */
+/* .list-header { ... } */
+/* .title-allowed { ... } */
+/* .title-blocked { ... } */
+
+.header-title {
+  font-size: 14px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: var(--text-secondary);
+}
+
+.artist-item {
+  background-color: rgba(255, 255, 255, 0.03); /* Slightly lighter than card */
+  padding: 8px 12px;
+  border-radius: var(--border-radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   transition: background-color 0.2s;
 }
 
-.btn-secondary {
-  background-color: #424242;
-  color: #fff;
+.artist-item:hover {
+  background-color: rgba(255, 255, 255, 0.07);
 }
-.btn-secondary:hover { background-color: #555; }
 
-.btn-danger {
-  background-color: #d32f2f;
-  color: #fff;
+.artist-name {
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 160px; /* Reduced width to fit buttons */
 }
-.btn-danger:hover { background-color: #b71c1c; }
 
-.btn-success {
-  background-color: #388e3c;
-  color: #fff;
+.btn-icon-toggle {
+  /* Renamed logic but keeping class name in JS for now or replacing it? 
+     Wait, JS still queries .btn-icon-toggle from template. 
+     So I should style .btn-icon-toggle as a base for buttons if I didn't change the HTML template class.
+     Checking HTML: <button class="btn-icon-toggle" ...>
+     Yes, I need to keep the selector or update HTML. 
+     The JS adds .btn-action-sm .btn-action-block/allow.
+     Let's override/reset .btn-icon-toggle styles or repurpose it.
+  */
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0; /* Reset */
 }
-.btn-success:hover { background-color: #2e7d32; }
 
-.debug-info {
-  margin-top: 8px;
-  padding: 8px;
-  background-color: #000;
-  border: 1px solid #333;
-  border-radius: 4px;
-  font-family: monospace;
-  font-size: 10px;
-  color: #0f0;
-  white-space: pre-wrap;
+.btn-action-sm {
+  padding: 6px 14px;
+  border-radius: 20px; /* Rounded pill */
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  border: 1px solid transparent;
+  transition: all 0.2s;
+  min-width: 60px; /* Ensure consistent width */
+  text-align: center;
+}
+
+.btn-action-block {
+  color: #fff;
+  background-color: rgba(255, 51, 51, 0.15); /* Low opacity red */
+  border-color: rgba(255, 51, 51, 0.3);
+  box-shadow: 0 0 8px rgba(255, 51, 51, 0.1);
+}
+
+.btn-action-block:hover {
+  background-color: var(--accent-warning);
+  border-color: var(--accent-warning);
+  color: #000; /* Black text on bright red for contrast */
+  box-shadow: 0 0 12px rgba(255, 51, 51, 0.4);
+}
+
+.btn-action-allow {
+  color: #fff;
+  background-color: rgba(0, 255, 153, 0.15); /* Low opacity green */
+  border-color: rgba(0, 255, 153, 0.3);
+  box-shadow: 0 0 8px rgba(0, 255, 153, 0.1);
+}
+
+.btn-action-allow:hover {
+  background-color: var(--accent-success);
+  border-color: var(--accent-success);
+  color: #000; /* Black text on bright green for contrast */
+  box-shadow: 0 0 12px rgba(0, 255, 153, 0.4);
+}
+
+.empty-state {
+  padding: 16px;
+  text-align: center;
+  font-size: 12px;
+  color: #555;
+  font-style: italic;
+  background: rgba(255,255,255,0.02);
+  border-radius: var(--border-radius-sm);
 }
 
 .hidden {
-  display: none;
+  display: none !important;
 }

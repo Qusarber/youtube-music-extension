@@ -98,12 +98,20 @@ class StorageManager {
             });
         }
         
-        // Also update country/isRussian if the new data is more authoritative?
-        // For now, let's trust the new search result if the old one was empty/unknown?
-        // Or just update aliases.
+        // Update isRussian if explicitly provided (allows toggling status via popup)
+        if (artist.isRussian !== undefined && existingArtist.isRussian !== artist.isRussian) {
+             existingArtist.isRussian = artist.isRussian;
+             updated = true;
+        }
+
+        // Update lastPlayed
+        if (artist.lastPlayed && (!existingArtist.lastPlayed || artist.lastPlayed > existingArtist.lastPlayed)) {
+            existingArtist.lastPlayed = artist.lastPlayed;
+            updated = true;
+        }
         
         if (updated) {
-            console.log('Updating aliases for existing artist:', existingArtist.name);
+            console.log('Updating artist data:', existingArtist.name);
             artists[existingIndex] = existingArtist;
             await this.saveArtists(artists);
         } else {
