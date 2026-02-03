@@ -1,6 +1,7 @@
 // Content script
 console.log('YouTube Music Extension Content Script loaded.');
 
+(function() {
 class PlayerController {
   constructor() {
     this.initListeners();
@@ -674,3 +675,4 @@ const queueMonitor = new QueueMonitor();
 queueMonitor.start();
 const playlistMonitor = new PlaylistMonitor();
 playlistMonitor.start();
+})();

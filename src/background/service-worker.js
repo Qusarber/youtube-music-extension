@@ -4,10 +4,29 @@ importScripts('../utils/normalization.js', 'env.js', 'storage.js', 'logger.js', 
 console.log('YouTube Music Extension Service Worker loaded.');
 
 // Initialize storage on startup
-chrome.runtime.onInstalled.addListener(() => {
+chrome.runtime.onInstalled.addListener(async () => {
   StorageManager.init().then(() => {
     console.log('Storage initialized.');
   });
+
+  // Inject content script into existing tabs
+  try {
+    const tabs = await chrome.tabs.query({ url: 'https://music.youtube.com/*' });
+    for (const tab of tabs) {
+      try {
+        await chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          files: ['src/content/content.js']
+        });
+        console.log(`Injected content script into tab ${tab.id}`);
+      } catch (err) {
+        // Ignore errors for tabs where injection isn't allowed (e.g. restricted urls)
+        console.debug(`Failed to inject into tab ${tab.id}:`, err);
+      }
+    }
+  } catch (err) {
+    console.error('Error querying tabs:', err);
+  }
 });
 
 /**

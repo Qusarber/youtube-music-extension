@@ -4,7 +4,8 @@
   "version": "1.0.0",
   "description": "A Chrome Extension for YouTube Music",
   "permissions": [
-    "storage"
+    "storage",
+    "scripting"
   ],
   "host_permissions": [
     "https://music.youtube.com/*",
